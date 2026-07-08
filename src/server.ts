@@ -56,6 +56,24 @@ wss.on("connection",(ws: WebSocket)=>{
                     console.log("Player says:", parsedMessage.message);
                     ws.send("Server received: " + parsedMessage.message);
                     break;
+                case 'move': {
+                    if(!currentRoomId){
+                        break;
+                    }
+                    const room = rooms.get(currentRoomId);
+                    try{
+                        room?.game.move({from : parsedMessage.from, to : parsedMessage.to });
+
+                        const newFen = room?.game.fen();
+                        const turn = room?.game.turn();
+
+                        room?.players.forEach(client => {
+                            client.send(JSON.stringify({type: 'state',fen : newFen,turn : turn}));
+                        })
+                    }catch(error){
+                        ws.send(JSON.stringify({type : 'error', message : 'illegal move'}));
+                    }
+                }
         }
         }catch(error){
             console.error("Recived invalid JSON format");
