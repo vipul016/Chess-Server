@@ -1,9 +1,16 @@
 import {WebSocketServer,WebSocket} from 'ws';
 import { ClientMessage,ServerMessage } from './types';
 import { Chess } from 'chess.js';
+import crypto from 'crypto';
 
+interface ChessWebSocket extends WebSocket{
+    isAlive : boolean;
+    sessionId?: string;
+    color: 'w' | 'b';
+    isBeingReplaced?: boolean;
+}
 interface Room {
-    players: WebSocket[];
+    players: ChessWebSocket[];
     game : Chess;
 }
 const wss = new WebSocketServer({ port: 8080 });
@@ -13,8 +20,15 @@ function sendToClient(ws : WebSocket, message: ServerMessage){
     ws.send(JSON.stringify(message));
 }
 
-wss.on("connection",(ws: WebSocket)=>{
+wss.on("connection",(socket: WebSocket)=>{
+    const ws = socket as ChessWebSocket;
     console.log("A New Player Connected!")
+
+
+    ws.isAlive = true;
+    ws.on('pong',()=>{
+        ws.isAlive = true;
+    })
 
     let currentRoomId : string | null = null;
     let playerColor : 'w' | 'b' | null = null;
@@ -37,17 +51,20 @@ wss.on("connection",(ws: WebSocket)=>{
                         sendToClient(ws,{type : 'error',message: 'room is full!'});
                         break;
                     }
-                    room.players.push(ws);
+                    ws.sessionId = crypto.randomUUID();
                     currentRoomId = roomId;
+
+                    room.players.push(ws);
+
                     if(room.players.length === 1){
                         playerColor = 'w';
                         console.log(`Player 1 joined room ${roomId}. Waiting for opponent...`);
-                        sendToClient(ws,{type : "room_joined",color : "white"});
+                        sendToClient(ws,{type : "room_joined",color : "white",sessionId: ws.sessionId});
                     }
                     else if(room.players.length === 2){
                         playerColor = 'b';
                         console.log(`Player 2 joined room ${roomId}. Game is ready!`);
-                        sendToClient(ws,{ type: 'room_joined', color: 'black' })
+                        sendToClient(ws,{ type: 'room_joined', color: 'black',sessionId: ws.sessionId })
 
                         const startingState = JSON.stringify({
                             type : 'state',
@@ -85,25 +102,60 @@ wss.on("connection",(ws: WebSocket)=>{
                             sendToClient(client,{type: 'state',fen : newFen!,turn : turn!});
                         })
                         if(room.game.isGameOver()){
-                            let msg;
-                            if(room.game.isCheckmate()){
-                                if(currTurn == 'w'){
-                                    msg = "Checkmate! White Wins";
-                                }else{
-                                    msg = "Checkmate! Black Wins";
-                                }
-                            }else if(room.game.isDraw()){
-                                msg = "Draw!"
+                            let resultMessage = "Game Over";
+                            if (room.game.isCheckmate()) {
+                                const winner = turn === 'b' ? 'White' : 'Black'; 
+                                resultMessage = `Checkmate! ${winner} wins.`;
+                            } else if (room.game.isDraw() || room.game.isStalemate() || room.game.isThreefoldRepetition()) {
+                                resultMessage = "Draw!";
                             }
-
                             room.players.forEach(client => {
-                                sendToClient(client,{type: 'game_over', result: msg!});
-                            })
+                                sendToClient(client, { type: 'game_over', result: resultMessage });
+                            });
                         }
                     }catch(error){
                         sendToClient(ws,{type : 'error', message : 'illegal move'});
                     }
                     break;
+                }
+                case 'reconnect': {
+                    const {roomId,sessionId} = parsedMessage;
+                    const room = rooms.get(roomId);
+                    if (!room) {
+                        sendToClient(ws, { type: 'error', message: 'Room no longer exists.' });
+                        break;
+                    }
+
+                    const ghostIndex = room.players.findIndex(p => p.sessionId===sessionId);
+
+                    if(ghostIndex === -1){
+                        sendToClient(ws, { type: 'error', message: 'Invalid Session ID.' });
+                        break;
+                    }
+                    const ghost = room.players[ghostIndex];
+
+                    console.log(`Player ${ghost.color} is reconnecting to ${roomId}...`);
+
+                    ws.sessionId = sessionId;
+                    ws.color = ghost.color;
+                    currentRoomId = roomId;
+                    playerColor = ghost.color;
+
+                    room.players[ghostIndex] = ws;
+
+                    ghost.isBeingReplaced = true;
+                    ghost.terminate();
+
+                    const colorString = ws.color === 'w' ? 'white' : 'black';
+                    sendToClient(ws, { type: 'room_joined', color: colorString, sessionId: sessionId });
+                    sendToClient(ws, { type: 'state', fen: room.game.fen(), turn: room.game.turn() });
+
+                    const opponent = room.players.find(p => p !== ws);
+                    if (opponent) {
+                        sendToClient(opponent, { type: 'chat', message: 'Your opponent reconnected!' });
+                    }
+                    break;
+
                 }
         }
         }catch(error){
@@ -113,6 +165,11 @@ wss.on("connection",(ws: WebSocket)=>{
     });
     // listen for disconnection
     ws.on("close",()=>{
+
+        if(ws.isBeingReplaced){
+            console.log("Ghost connection safely terminated.");
+            return;
+        }
         console.log("Client Disconnected");
 
         if(currentRoomId){
@@ -135,3 +192,22 @@ wss.on("connection",(ws: WebSocket)=>{
 
     });
 })
+
+const heartBeatInterval = setInterval(()=>{
+    wss.clients.forEach((client)=>{
+        const ws = client as ChessWebSocket;
+
+        if(ws.isAlive === false){
+            console.log("Terminating ghost connection due to missed heartbeat.");
+            ws.terminate();
+        }
+        ws.ping();
+        ws.isAlive = false;
+    })
+},30000);
+
+wss.on('close',()=>{
+    clearInterval(heartBeatInterval);
+});
+
+console.log("Chess Server running on ws://localhost:8080");
