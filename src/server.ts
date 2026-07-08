@@ -58,11 +58,13 @@ wss.on("connection",(socket: WebSocket)=>{
 
                     if(room.players.length === 1){
                         playerColor = 'w';
+                        ws.color = 'w';
                         console.log(`Player 1 joined room ${roomId}. Waiting for opponent...`);
                         sendToClient(ws,{type : "room_joined",color : "white",sessionId: ws.sessionId});
                     }
                     else if(room.players.length === 2){
                         playerColor = 'b';
+                        ws.color = 'b';
                         console.log(`Player 2 joined room ${roomId}. Game is ready!`);
                         sendToClient(ws,{ type: 'room_joined', color: 'black',sessionId: ws.sessionId })
 
@@ -93,7 +95,16 @@ wss.on("connection",(socket: WebSocket)=>{
                         break;
                     }
                     try{
-                        room?.game.move({from : parsedMessage.from, to : parsedMessage.to });
+                        const moveResult = room.game.move({ 
+                            from: parsedMessage.from, 
+                            to: parsedMessage.to,
+                            promotion: parsedMessage.promotion || 'q'
+                        });
+
+                        if (!moveResult) {
+                            sendToClient(ws, { type: 'error', message: 'Illegal move' });
+                            break;
+                        }
 
                         const newFen = room?.game.fen();
                         const turn = room?.game.turn();
@@ -112,9 +123,11 @@ wss.on("connection",(socket: WebSocket)=>{
                             room.players.forEach(client => {
                                 sendToClient(client, { type: 'game_over', result: resultMessage });
                             });
+                            
+                            rooms.delete(currentRoomId);
                         }
                     }catch(error){
-                        sendToClient(ws,{type : 'error', message : 'illegal move'});
+                        sendToClient(ws, { type: 'error', message: 'Move execution failed' });
                     }
                     break;
                 }
