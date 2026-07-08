@@ -1,8 +1,13 @@
 import {WebSocketServer,WebSocket} from 'ws';
-import { ClientMessage } from './types';
+import { ClientMessage,ServerMessage } from './types';
+import { Chess } from 'chess.js';
 
+interface Room {
+    players: WebSocket[];
+    game : Chess;
+}
 const wss = new WebSocketServer({ port: 8080 });
-const rooms = new Map<string,WebSocket[]>();
+const rooms = new Map<string,Room>();
 
 wss.on("connection",(ws: WebSocket)=>{
     console.log("A New Player Connected!")
@@ -17,24 +22,33 @@ wss.on("connection",(ws: WebSocket)=>{
                 case 'join':{
                     const roomId = parsedMessage.roomId;
                     if(!rooms.has(roomId)){
-                        rooms.set(roomId,[]);
+                        rooms.set(roomId,{
+                            players: [],
+                            game : new Chess()
+                        });
                     }
                     const room = rooms.get(roomId)!;
-                    if(room.length >= 2){
+                    if(room.players.length >= 2){
                         ws.send("Error: Room is Full!");
                         break;
                     }
-                    room.push(ws);
+                    room.players.push(ws);
                     currentRoomId = roomId;
-                    if(room.length === 1){
+                    if(room.players.length === 1){
                         console.log(`Player 1 joined room ${roomId}. Waiting for opponent...`);
-                        ws.send("You joined as Player 1 (White). Waiting for opponent...");
+                        ws.send(JSON.stringify({type : "room_joined",color : "white"}));
                     }
-                    else if(room.length === 2){
+                    else if(room.players.length === 2){
                         console.log(`Player 2 joined room ${roomId}. Game is ready!`);
-                        ws.send("You joined as Player 2 (Black). Game starting!");
+                        ws.send(JSON.stringify({ type: 'room_joined', color: 'black' }));
 
-                        room[0].send("Your opponent has connected! The game begins.");
+                        const startingState = JSON.stringify({
+                            type : 'state',
+                            fen : room.game.fen(),
+                            turn : room.game.turn()
+                        })
+                        room.players[0].send(startingState);
+                        room.players[1].send(startingState);
                     }
                     break;
                 }
@@ -56,14 +70,13 @@ wss.on("connection",(ws: WebSocket)=>{
             const room = rooms.get(currentRoomId);
 
             if(room){
-                const updatedRoom = room.filter(client => client !== ws);
-                rooms.set(currentRoomId,updatedRoom);
+                room.players = room.players.filter(client => client !== ws);
     
-                updatedRoom.forEach(client => {
-                    client.send("Your opponent disconnected.")
+                room.players.forEach(client => {
+                    client.send(JSON.stringify({ type: 'error', message: 'Your opponent disconnected.' }));
                 })
 
-                if(updatedRoom.length === 0){
+                if(room.players.length === 0){
                     rooms.delete(currentRoomId);
                     console.log(`Room ${currentRoomId} is empty and has been deleted.`);
                 }
