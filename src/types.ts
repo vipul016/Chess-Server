@@ -6,4 +6,6 @@ export type ClientMessage =
 export type ServerMessage =
   | { type: 'room_joined'; color: 'white' | 'black' }
   | { type: 'state'; fen: string; turn: 'w' | 'b' } 
-  | { type: 'error'; message: string };
+  | { type: 'error'; message: string }
+  | { type: 'game_over'; result: string};
+  
