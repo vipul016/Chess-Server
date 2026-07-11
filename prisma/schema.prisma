@@ -1,0 +1,51 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+model User {
+  id        String   @id @default(uuid())
+  username  String   @unique
+  createdAt DateTime @default(now())
+
+  // Relations
+  gamesAsWhite Game[] @relation("WhitePlayer")
+  gamesAsBlack Game[] @relation("BlackPlayer")
+}
+
+model Game {
+  id            String    @id @default(uuid())
+  whitePlayerId String?   // Optional until we add Auth
+  blackPlayerId String?   // Optional until we add Auth
+  status        String    // 'active' or 'finished'
+  result        String?   
+  createdAt     DateTime  @default(now())
+  finishedAt    DateTime?
+
+  // Relations
+  whitePlayer User?  @relation("WhitePlayer", fields: [whitePlayerId], references: [id])
+  blackPlayer User?  @relation("BlackPlayer", fields: [blackPlayerId], references: [id])
+  moves       Move[]
+}
+
+model Move {
+  id         String   @id @default(uuid())
+  gameId     String
+  moveNumber Int
+  notation   String   // e.g., "e4"
+  fenAfter   String   // The board state after this move
+  createdAt  DateTime @default(now())
+
+  // Relations
+  game Game @relation(fields: [gameId], references: [id])
+}
