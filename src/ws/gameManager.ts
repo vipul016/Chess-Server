@@ -121,6 +121,11 @@ export function setupWebSockets(wss: WebSocketServer) {
             if (ws.roomId) {
                 const room = rooms.get(ws.roomId);
                 if (room) {
+                    if (room.spectators && room.spectators.includes(ws)) {
+                        room.spectators = room.spectators.filter(s => s !== ws);
+                        return; // Spectators don't trigger disconnect timeouts
+                    }
+
                     const opponent = room.players.find(p => p !== ws);
                     if (opponent) {
                         sendToClient(opponent, { type: 'error', message: 'Your opponent disconnected. They have 60 seconds to reconnect.' });

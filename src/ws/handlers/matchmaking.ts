@@ -7,7 +7,7 @@ import { ChessWebSocket, rooms, matchQueue, pendingPrivateRooms, sendToClient } 
 const prisma = new PrismaClient();
 
 // Helper to handle the actual room creation and DB setup to avoid repeating code
-async function setupGameRoom(player1: ChessWebSocket, player2: ChessWebSocket) {
+export async function setupGameRoom(player1: ChessWebSocket, player2: ChessWebSocket) {
     const roomId = crypto.randomUUID(); 
 
     rooms.set(roomId, {

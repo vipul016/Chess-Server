@@ -18,7 +18,7 @@ export async function finalizeGame(
             include: { whitePlayer: true, blackPlayer: true }
         });
 
-        if (!game) return;
+        if (!game || !game.whitePlayer || !game.blackPlayer || !game.whitePlayerId || !game.blackPlayerId) return;
 
         // 2. Calculate new Elo ratings
         const eloResult = calculateElo(game.whitePlayer.rating, game.blackPlayer.rating, outcome);

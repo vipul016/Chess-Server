@@ -41,6 +41,11 @@ export function handleReconnect(ws: ChessWebSocket, roomId: string, sessionId: s
     ghost.isBeingReplaced = true;
     ghost.terminate();
 
+    if (room.disconnectTimeouts && ws.color && room.disconnectTimeouts[ws.color]) {
+        clearTimeout(room.disconnectTimeouts[ws.color]);
+        delete room.disconnectTimeouts[ws.color];
+    }
+
     const colorString = ws.color === 'w' ? 'white' : 'black';
     sendToClient(ws, { type: 'room_joined', color: colorString, sessionId: sessionId });
     sendToClient(ws, { type: 'state', fen: room.game.fen(), turn: room.game.turn(), clock: room.clock });
