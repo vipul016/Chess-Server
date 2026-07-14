@@ -2,23 +2,30 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { ClientMessage } from '../types';
 import { PrismaClient } from '@prisma/client';
 import { ChessWebSocket, rooms, matchQueue, sendToClient } from './state';
-import { handleFindMatch } from './handlers/matchmaking';
 import { handleMove, handleResign, handleDrawOffer, handleDrawResponse } from './handlers/gameplay';
 import { handleChat, handleReconnect } from './handlers/connection';
 import { finalizeGame } from './handlers/gameplay';
+import { handleFindMatch, handleCreatePrivateRoom, handleJoinPrivateRoom } from './handlers/matchmaking';
 
 const prisma = new PrismaClient();
 let heartBeatInterval: NodeJS.Timeout;
 let sweeperInterval: NodeJS.Timeout;
 
 export function setupWebSockets(wss: WebSocketServer) {
-    wss.on("connection", (socket: WebSocket, req: any) => {
+    wss.on("connection", async (socket: WebSocket, req: any) => {
         const ws = socket as ChessWebSocket;
         ws.userId = req.userId;
         ws.username = req.username;
         ws.isAlive = true;
+
+        try {
+            const user = await prisma.user.findUnique({ where: { id: ws.userId } });
+            ws.rating = user?.rating || 1200; // Default to 1200 if not found
+        } catch (e) {
+            ws.rating = 1200;
+        }
         
-        console.log(`Player ${ws.username} Connected!`);
+        console.log(`Player ${ws.username} (Elo: ${ws.rating}) Connected!`);
 
         ws.on('pong', () => { 
             ws.isAlive = true; 
@@ -37,6 +44,16 @@ export function setupWebSockets(wss: WebSocketServer) {
                 switch (parsedMessage.type) {
                     case 'find_match':
                         await handleFindMatch(ws);
+                        break;
+                    case 'create_private_room':
+                        handleCreatePrivateRoom(ws);
+                        break;
+                    case 'join_private_room':
+                        if (!parsedMessage.roomCode) {
+                            sendToClient(ws, { type: 'error', message: 'Room code required.' });
+                            break;
+                        }
+                        await handleJoinPrivateRoom(ws, parsedMessage.roomCode);
                         break;
                     case 'move':
                         await handleMove(ws, parsedMessage);
@@ -64,6 +81,19 @@ export function setupWebSockets(wss: WebSocketServer) {
 
         ws.on("close", () => {
             if (ws.isBeingReplaced) return; 
+
+            const queueIndex = matchQueue.indexOf(ws);
+            if (queueIndex !== -1) {
+                matchQueue.splice(queueIndex, 1);
+            }
+
+            // If they were hosting a private room, delete it
+            for (const [code, host] of pendingPrivateRooms.entries()) {
+                if (host === ws) {
+                    pendingPrivateRooms.delete(code);
+                    break;
+                }
+            }
             
             if (matchQueue.waitingPlayer === ws) {
                 matchQueue.waitingPlayer = null;

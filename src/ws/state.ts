@@ -11,6 +11,7 @@ export interface ChessWebSocket extends WebSocket {
     roomId?: string;     
     isBeingReplaced?: boolean;
     lastActionTime?: number;
+    rating: number;
 }
 
 export interface Room {
@@ -24,10 +25,9 @@ export interface Room {
 // Global in-memory state
 export const rooms = new Map<string, Room>();
 
-// We use an object for the queue so we can mutate the reference across different files
-export const matchQueue: { waitingPlayer: ChessWebSocket | null } = { 
-    waitingPlayer: null 
-};
+export const matchQueue: ChessWebSocket[] = [];
+
+export const pendingPrivateRooms = new Map();
 
 // Shared utility
 export function sendToClient(ws: WebSocket, message: ServerMessage) {

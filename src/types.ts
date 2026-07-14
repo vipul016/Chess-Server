@@ -6,7 +6,9 @@ export type ClientMessage =
   | { type: 'reconnect'; roomId: string; sessionId: string; token: string}
   | { type: 'resign' }                                     
   | { type: 'draw_offer' }                                
-  | { type: 'draw_response'; accept: boolean };
+  | { type: 'draw_response'; accept: boolean }
+  | { type: 'create_private_room' }
+  | { type: 'join_private_room'; roomCode: string };
 
 export type ServerMessage =
   | { type: 'room_joined'; color: 'white' | 'black'; sessionId: string}
@@ -15,4 +17,5 @@ export type ServerMessage =
   | { type: 'error'; message: string }
   | { type: 'game_over'; result: string}
   | { type: 'chat'; message: string }
-  | { type: 'draw_offered' };
+  | { type: 'draw_offered' }
+  | { type: 'room_created'; roomCode: string };
