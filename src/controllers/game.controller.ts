@@ -2,8 +2,12 @@ import { Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middlewares/httpAuth';
 import { StockfishService } from '../services/stockfish.service';
+import {z} from 'zod';
 
 const prisma = new PrismaClient();
+const analyzeSchema = z.object({
+    fen: z.string().min(15, "Invalid FEN string") 
+});
 
 export const getMyGames = async (req: AuthRequest, res: Response)=> {
     try {
@@ -66,6 +70,12 @@ export const getGameById = async (req: AuthRequest, res: Response)=> {
 };
 
 export const analyzeGamePosition = async (req: AuthRequest, res: Response) => {
+
+    const parsed = analyzeSchema.safeParse(req.body);
+    if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.format() });
+    }
+
     // 1. Spawn a dedicated engine instance just for this request
     const engine = new StockfishService();
     
@@ -98,8 +108,12 @@ export const getFullGameAnalysis = async (req: AuthRequest, res: Response) => {
             include: { moves: { orderBy: { moveNumber: 'asc' } } }
         });
 
+
         if (!game || game.moves.length === 0) {
             return res.status(404).json({ error: 'Game not found or has no moves' });
+        }
+        if (game.whitePlayerId !== req.userId && game.blackPlayerId !== req.userId) {
+            return res.status(403).json({ error: 'Forbidden: You did not participate in this game' });
         }
 
         const startingFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';

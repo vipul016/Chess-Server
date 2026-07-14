@@ -16,7 +16,7 @@ dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
-const PORT = process.env.PORT;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 8080;
 const prisma = new PrismaClient();
 
 
