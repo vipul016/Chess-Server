@@ -1,5 +1,7 @@
 # Chess-Server
 
+**Live Demo:** [https://chess-client-6f79gpep5-vipul016s-projects.vercel.app](https://chess-client-6f79gpep5-vipul016s-projects.vercel.app)
+
 Real-time multiplayer chess backend built with Node.js, TypeScript, WebSockets, and PostgreSQL. The server is fully authoritative — clients never dictate game state, only send move intents — with JWT authentication, Elo-based rating and matchmaking, session-verified reconnection, bot opponents powered by Stockfish, and asynchronous post-game analysis.
 
 ## Features
