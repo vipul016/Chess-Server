@@ -9,6 +9,7 @@ import { setupWebSockets } from './ws/gameManager';
 import { handleWsUpgrade } from './middlewares/wsAuth'; 
 import gameRoutes from './routes/game.routes';
 import { shutdownActiveGames } from './ws/gameManager';
+import { analysisQueue } from './services/analysis.queue';
 import { PrismaClient } from '@prisma/client';
 
 
@@ -46,8 +47,20 @@ setupWebSockets(wss);
 server.on('upgrade', handleWsUpgrade(wss));
 
 // 5. Start Server
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
     console.log("♟️ Hybrid REST & WebSocket Server running on http://localhost:8080");
+
+    // Recover any pending analysis tasks from previous crashes
+    const pendingGames = await prisma.game.findMany({
+        where: { analysisStatus: 'pending' },
+        select: { id: true }
+    });
+    if (pendingGames.length > 0) {
+        console.log(`Recovering ${pendingGames.length} pending analysis tasks...`);
+        for (const game of pendingGames) {
+            analysisQueue.add(game.id);
+        }
+    }
 });
 
 const gracefulShutdown = async (signal: string) => {

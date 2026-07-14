@@ -2,6 +2,7 @@ import { Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middlewares/httpAuth';
 import { StockfishService } from '../services/stockfish.service';
+import { analysisQueue } from '../services/analysis.queue';
 import {z} from 'zod';
 import { rooms } from '../ws/state';
 
@@ -102,9 +103,6 @@ export const analyzeGamePosition = async (req: AuthRequest, res: Response) => {
 };
 
 export const getFullGameAnalysis = async (req: AuthRequest, res: Response) => {
-    // 1. Spawn a dedicated engine instance just for this request
-    const engine = new StockfishService();
-    
     try {
         const gameIdString = req.params.id as string;
 
@@ -113,7 +111,6 @@ export const getFullGameAnalysis = async (req: AuthRequest, res: Response) => {
             include: { moves: { orderBy: { moveNumber: 'asc' } } }
         });
 
-
         if (!game || game.moves.length === 0) {
             return res.status(404).json({ error: 'Game not found or has no moves' });
         }
@@ -121,19 +118,23 @@ export const getFullGameAnalysis = async (req: AuthRequest, res: Response) => {
             return res.status(403).json({ error: 'Forbidden: You did not participate in this game' });
         }
 
-        const startingFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-        const fens = [startingFen, ...game.moves.map((m: any) => m.fenAfter)];
+        // Return immediately if completed
+        if (game.analysisStatus === 'completed') {
+            return res.json(game.analysis);
+        }
 
-        // We can safely iterate using this engine because no other user can access it
-        const report = await engine.analyzeFullGame(fens);
+        // If pending, tell client to poll
+        if (game.analysisStatus === 'pending') {
+            return res.json({ status: 'pending' });
+        }
 
-        res.json(report);
+        // Otherwise (none or failed), enqueue it
+        analysisQueue.add(gameIdString);
+        return res.json({ status: 'pending' });
+
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: 'Failed to analyze game' });
-    } finally {
-        // 2. GUARANTEE the process is killed
-        engine.kill();
     }
 };
 

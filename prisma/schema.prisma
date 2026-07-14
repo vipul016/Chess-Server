@@ -41,6 +41,9 @@ model Game {
   whiteRatingChange Int?
   blackRatingChange Int?
 
+  analysisStatus String @default("none") // none, pending, completed, failed
+  analysis       Json?
+
   // Relations
   whitePlayer User?  @relation("WhitePlayer", fields: [whitePlayerId], references: [id])
   blackPlayer User?  @relation("BlackPlayer", fields: [blackPlayerId], references: [id])
