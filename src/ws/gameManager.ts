@@ -56,6 +56,10 @@ export function setupWebSockets(wss: WebSocketServer) {
                 switch (parsedMessage.type) {
                     
                     case 'find_match': {
+                        if (waitingPlayer && waitingPlayer.readyState !== WebSocket.OPEN) {
+                            console.log(`Cleared dead connection for waiting player ${waitingPlayer.username}`);
+                            waitingPlayer = null;
+                        }
                         if (waitingPlayer) {
                             if (waitingPlayer === ws) return; 
 
@@ -309,6 +313,10 @@ export function setupWebSockets(wss: WebSocketServer) {
                         
                         const ghost = room.players[ghostIndex];
                         
+                        if (ghost.userId !== ws.userId) {
+                            sendToClient(ws, { type: 'error', message: 'Unauthorized: Identity mismatch.' });
+                            break;
+                        }
                         ws.roomId = roomId;
                         ws.color = ghost.color;
                         ws.sessionId = sessionId;

@@ -1,7 +1,7 @@
 import { Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middlewares/httpAuth';
-import { stockfish } from '../services/stockfish.service';
+import { StockfishService } from '../services/stockfish.service';
 
 const prisma = new PrismaClient();
 
@@ -63,11 +63,34 @@ export const getGameById = async (req: AuthRequest, res: Response)=> {
     }
 };
 
+export const analyzeGamePosition = async (req: Request, res: Response) => {
+    // 1. Spawn a dedicated engine instance just for this request
+    const engine = new StockfishService();
+    
+    try {
+        const { fen } = req.body;
+        if (!fen) {
+            return res.status(400).json({ error: 'Missing FEN string' });
+        }
+
+        const analysis = await engine.analyzePosition(fen, 12);
+        res.json(analysis);
+    } catch (error: any) {
+        console.error(error);
+        res.status(500).json({ error: error.message || 'Analysis failed' });
+    } finally {
+        // 2. GUARANTEE the process is killed so we don't leak memory
+        engine.kill();
+    }
+};
+
 export const getFullGameAnalysis = async (req: AuthRequest, res: Response) => {
+    // 1. Spawn a dedicated engine instance just for this request
+    const engine = new StockfishService();
+    
     try {
         const gameIdString = req.params.id as string;
 
-        // 1. Fetch the game and all its moves from PostgreSQL
         const game = await prisma.game.findUnique({
             where: { id: gameIdString },
             include: { moves: { orderBy: { moveNumber: 'asc' } } }
@@ -77,16 +100,18 @@ export const getFullGameAnalysis = async (req: AuthRequest, res: Response) => {
             return res.status(404).json({ error: 'Game not found or has no moves' });
         }
 
-        // 2. Extract just the FEN strings (we add the starting board FEN at the beginning)
         const startingFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
         const fens = [startingFen, ...game.moves.map(m => m.fenAfter)];
 
-        // 3. Run the engine (This will take a few seconds!)
-        const report = await stockfish.analyzeFullGame(fens);
+        // We can safely iterate using this engine because no other user can access it
+        const report = await engine.analyzeFullGame(fens);
 
         res.json(report);
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: 'Failed to analyze game' });
+    } finally {
+        // 2. GUARANTEE the process is killed
+        engine.kill();
     }
 };

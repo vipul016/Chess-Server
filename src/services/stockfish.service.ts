@@ -170,5 +170,3 @@ export class StockfishService {
         }
     }
 }
-
-export const stockfish = new StockfishService();
