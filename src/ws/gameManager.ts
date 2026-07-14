@@ -11,10 +11,10 @@ const prisma = new PrismaClient();
 interface ChessWebSocket extends WebSocket {
     isAlive: boolean;
     sessionId?: string;
-    userId?: string;     // Injected by our Auth Middleware
-    username?: string;   // Injected by our Auth Middleware
+    userId?: string;     
+    username?: string;   
     color?: 'w' | 'b';
-    roomId?: string;     // Attached directly to the socket to prevent closure traps
+    roomId?: string;     
     isBeingReplaced?: boolean;
 }
 
@@ -22,8 +22,8 @@ interface Room {
     players: ChessWebSocket[];
     game: Chess;
     dbGameId?: string;
-    clock: { w: number; b: number };
-    lastMoveTime: number;
+    clock: { w: number; b: number }; // Time remaining in ms
+    lastMoveTime: number;            // Timestamp of the last move
 }
 
 const rooms = new Map<string, Room>();
@@ -33,25 +33,22 @@ function sendToClient(ws: WebSocket, message: ServerMessage) {
 }
 
 export function setupWebSockets(wss: WebSocketServer) {
-    // The global matchmaking queue for this server instance
     let waitingPlayer: ChessWebSocket | null = null; 
 
     wss.on("connection", (socket: WebSocket, req: any) => {
         const ws = socket as ChessWebSocket;
         
-        // 1. Hydrate socket with Auth data from the Upgrade Middleware
+        // Hydrate socket with Auth data
         ws.userId = req.userId;
         ws.username = req.username;
         ws.isAlive = true;
         
         console.log(`Player ${ws.username} Connected!`);
 
-        // 2. Heartbeat listener
         ws.on('pong', () => { 
             ws.isAlive = true; 
         });
 
-        // 3. Main Message Handler
         ws.on("message", async (data) => {
             try {
                 const parsedMessage = JSON.parse(data.toString()) as ClientMessage;
@@ -59,33 +56,31 @@ export function setupWebSockets(wss: WebSocketServer) {
                 switch (parsedMessage.type) {
                     
                     case 'find_match': {
-                        // If someone is already in the queue, pair them up!
                         if (waitingPlayer) {
-                            // Prevent a user from matching against themselves if they click twice
                             if (waitingPlayer === ws) return; 
 
                             const roomId = crypto.randomUUID(); 
 
+                            // Create the room with a 10-minute clock (600,000 ms)
                             rooms.set(roomId, {
                                 players: [waitingPlayer, ws],
                                 game: new Chess(),
-                                clock: {w : 600000,b : 600000},
-                                lastMoveTime: Date.now(),
+                                clock: { w: 600000, b: 600000 }, 
+                                lastMoveTime: Date.now()         
                             });
 
                             const room = rooms.get(roomId)!;
                             
-                            // SET STATE ON PLAYER 1 (The one who was waiting)
+                            // Set State on Player 1
                             waitingPlayer.roomId = roomId;
                             waitingPlayer.color = 'w';
                             waitingPlayer.sessionId = crypto.randomUUID();
                             
-                            // SET STATE ON PLAYER 2 (The one who just connected)
+                            // Set State on Player 2
                             ws.roomId = roomId;
                             ws.color = 'b';
                             ws.sessionId = crypto.randomUUID();
 
-                            // Save the new Game to the Database with actual User IDs
                             const dbGame = await prisma.game.create({
                                 data: { 
                                     status: 'active',
@@ -95,26 +90,21 @@ export function setupWebSockets(wss: WebSocketServer) {
                             });
                             room.dbGameId = dbGame.id;
 
-                            // Notify both players that the match is starting
                             sendToClient(waitingPlayer, { type: 'match_found', roomId, color: 'white' });
                             sendToClient(ws, { type: 'match_found', roomId, color: 'black' });
 
-                            // Broadcast initial board state
                             const startingState = {
                                 type: 'state' as const,
                                 fen: room.game.fen(),
                                 turn: room.game.turn(),
-                                clock : room.clock
+                                clock: room.clock
                             };
                             sendToClient(waitingPlayer, startingState);
                             sendToClient(ws, startingState);
 
-                            // Clear the waiting room now that they are paired
                             waitingPlayer = null; 
                             console.log(`Match created: Room ${roomId}`);
-                        } 
-                        // If the queue is empty, this player becomes the waiting player
-                        else {
+                        } else {
                             waitingPlayer = ws;
                             console.log(`Player ${ws.username} is waiting for a match...`);
                         }
@@ -130,23 +120,25 @@ export function setupWebSockets(wss: WebSocketServer) {
                         const currTurn = room.game.turn();
                         if (!currTurn) break;
                         
-                        // Validate it is actually this player's turn
                         if (currTurn !== ws.color) {
                             sendToClient(ws, { type: 'error', message: 'Not your turn' });
                             break;
                         }
 
+                        // CLOCK MATH
                         const now = Date.now();
                         const timeElapsed = now - room.lastMoveTime;
                         room.clock[currTurn] -= timeElapsed;
-                        room.lastMoveTime = now;
+                        room.lastMoveTime = now; // Reset timer for the next player
 
+                        // Did they run out of time?
                         if (room.clock[currTurn] <= 0) {
-                            room.clock[currTurn] = 0; // Prevent negative time
+                            room.clock[currTurn] = 0; 
                             const winner = currTurn === 'w' ? 'Black' : 'White';
                             const resultMessage = `Timeout! ${winner} wins.`;
                             
                             room.players.forEach(client => {
+                                sendToClient(client, { type: 'state', fen: room.game.fen(), turn: currTurn, clock: room.clock });
                                 sendToClient(client, { type: 'game_over', result: resultMessage });
                             });
 
@@ -157,11 +149,10 @@ export function setupWebSockets(wss: WebSocketServer) {
                                 });
                             }
                             rooms.delete(ws.roomId);
-                            break; // STOP processing the move!
+                            break; 
                         }
-                                                
+                        
                         try {
-                            // chess.js handles all complex chess logic (en passant, castling, etc.)
                             const moveResult = room.game.move({ 
                                 from: parsedMessage.from, 
                                 to: parsedMessage.to,
@@ -176,12 +167,10 @@ export function setupWebSockets(wss: WebSocketServer) {
                             const newFen = room.game.fen();
                             const turn = room.game.turn();
 
-                            // Broadcast the new board state to both players
                             room.players.forEach(client => {
-                                sendToClient(client, { type: 'state', fen: newFen, turn: turn,clock : room.clock });
+                                sendToClient(client, { type: 'state', fen: newFen, turn: turn, clock: room.clock });
                             });
 
-                            // Save the move to PostgreSQL
                             if (room.dbGameId) {
                                 const history = room.game.history();
                                 await prisma.move.create({
@@ -194,7 +183,6 @@ export function setupWebSockets(wss: WebSocketServer) {
                                 });
                             }
                             
-                            // Check for Checkmate, Stalemate, or Draws
                             if (room.game.isGameOver()) {
                                 let resultMessage = "Game Over";
                                 if (room.game.isCheckmate()) {
@@ -208,7 +196,6 @@ export function setupWebSockets(wss: WebSocketServer) {
                                     sendToClient(client, { type: 'game_over', result: resultMessage });
                                 });
                                 
-                                // Finalize the game in the Database
                                 if (room.dbGameId) {
                                     await prisma.game.update({
                                         where: { id: room.dbGameId },
@@ -219,12 +206,75 @@ export function setupWebSockets(wss: WebSocketServer) {
                                         }
                                     });
                                 }
-                                
-                                // Cleanup room from memory
                                 rooms.delete(ws.roomId);
                             }
                         } catch (error) {
                             sendToClient(ws, { type: 'error', message: 'Move execution failed' });
+                        }
+                        break;
+                    }
+
+                    case 'resign': {
+                        if (!ws.roomId) break;
+                        const room = rooms.get(ws.roomId);
+                        if (!room) break;
+                    
+                        const winner = ws.color === 'w' ? 'Black' : 'White';
+                        const resultMessage = `${winner} wins by resignation.`;
+                    
+                        room.players.forEach(client => {
+                            sendToClient(client, { type: 'game_over', result: resultMessage });
+                        });
+                    
+                        if (room.dbGameId) {
+                            await prisma.game.update({
+                                where: { id: room.dbGameId },
+                                data: { status: 'finished', result: resultMessage, finishedAt: new Date() }
+                            });
+                        }
+                    
+                        rooms.delete(ws.roomId);
+                        break;
+                    }
+
+                    case 'draw_offer': {
+                        if (!ws.roomId) break;
+                        const room = rooms.get(ws.roomId);
+                        if (!room) break;
+                    
+                        const opponent = room.players.find(p => p !== ws);
+                        if (opponent) {
+                            sendToClient(opponent, { type: 'draw_offered' });
+                            sendToClient(opponent, { type: 'chat', message: 'Your opponent offered a draw.' });
+                        }
+                        break;
+                    }
+                    
+                    case 'draw_response': {
+                        if (!ws.roomId) break;
+                        const room = rooms.get(ws.roomId);
+                        if (!room) break;
+                    
+                        const opponent = room.players.find(p => p !== ws);
+                    
+                        if (parsedMessage.accept) {
+                            const resultMessage = "Draw by agreement.";
+                            
+                            room.players.forEach(client => {
+                                sendToClient(client, { type: 'game_over', result: resultMessage });
+                            });
+                    
+                            if (room.dbGameId) {
+                                await prisma.game.update({
+                                    where: { id: room.dbGameId },
+                                    data: { status: 'finished', result: resultMessage, finishedAt: new Date() }
+                                });
+                            }
+                            rooms.delete(ws.roomId);
+                        } else {
+                            if (opponent) {
+                                sendToClient(opponent, { type: 'chat', message: 'Draw offer declined.' });
+                            }
                         }
                         break;
                     }
@@ -259,24 +309,19 @@ export function setupWebSockets(wss: WebSocketServer) {
                         
                         const ghost = room.players[ghostIndex];
                         
-                        // Hydrate the new socket with the ghost's game state
                         ws.roomId = roomId;
                         ws.color = ghost.color;
                         ws.sessionId = sessionId;
                         
-                        // Swap the connections
                         room.players[ghostIndex] = ws;
 
-                        // Safely terminate the old connection
                         ghost.isBeingReplaced = true;
                         ghost.terminate();
 
-                        // Send the user the current state to catch them up
                         const colorString = ws.color === 'w' ? 'white' : 'black';
                         sendToClient(ws, { type: 'room_joined', color: colorString, sessionId: sessionId });
-                        sendToClient(ws, { type: 'state', fen: room.game.fen(), turn: room.game.turn() });
+                        sendToClient(ws, { type: 'state', fen: room.game.fen(), turn: room.game.turn(), clock: room.clock });
 
-                        // Let the opponent know they returned
                         const opponent = room.players.find(p => p !== ws);
                         if (opponent) {
                             sendToClient(opponent, { type: 'chat', message: 'Your opponent reconnected!' });
@@ -289,11 +334,9 @@ export function setupWebSockets(wss: WebSocketServer) {
             }
         });
 
-        // 4. Disconnect Handler
         ws.on("close", () => {
-            if (ws.isBeingReplaced) return; // Ignore if we are just swapping out a ghost
+            if (ws.isBeingReplaced) return; 
             
-            // If the player was in the matchmaking queue, remove them so a ghost doesn't get paired
             if (waitingPlayer === ws) {
                 waitingPlayer = null;
                 console.log(`Waiting player ${ws.username} disconnected. Queue cleared.`);
@@ -301,7 +344,6 @@ export function setupWebSockets(wss: WebSocketServer) {
 
             console.log(`Player ${ws.username} Disconnected`);
             
-            // If the player was in an active room, alert the opponent
             if (ws.roomId) {
                 const room = rooms.get(ws.roomId);
                 if (room) {
@@ -311,7 +353,6 @@ export function setupWebSockets(wss: WebSocketServer) {
                         sendToClient(client, { type: 'error', message: 'Your opponent disconnected.' });
                     });
                     
-                    // If both players are gone, delete the room
                     if (room.players.length === 0) {
                         rooms.delete(ws.roomId);
                     }
@@ -320,7 +361,7 @@ export function setupWebSockets(wss: WebSocketServer) {
         });
     });
 
-    // 5. Heartbeat Interval (Cleans up silent disconnects)
+    // Heartbeat Interval
     const heartBeatInterval = setInterval(() => {
         wss.clients.forEach((client) => {
             const ws = client as ChessWebSocket;
@@ -334,40 +375,41 @@ export function setupWebSockets(wss: WebSocketServer) {
         });
     }, 30000);
 
-const sweeperInterval = setInterval(async () => {
-    const now = Date.now();
+    // Timeout Sweeper (Runs every 1 second)
+    const sweeperInterval = setInterval(async () => {
+        const now = Date.now();
 
-    for (const [roomId, room] of rooms.entries()) {
-        const turn = room.game.turn();
-        
-        const timeElapsed = now - room.lastMoveTime;
-        
-        if (room.clock[turn] - timeElapsed <= 0) {
-            console.log(`Room ${roomId}: Player ${turn} flagged!`);
-            room.clock[turn] = 0;
+        for (const [roomId, room] of rooms.entries()) {
+            const turn = room.game.turn();
+            const timeElapsed = now - room.lastMoveTime;
             
-            const winner = turn === 'w' ? 'Black' : 'White';
-            const resultMessage = `Timeout! ${winner} wins.`;
-            
-            room.players.forEach(client => {
-                sendToClient(client, { type: 'state', fen: room.game.fen(), turn: turn, clock: room.clock });
-                sendToClient(client, { type: 'game_over', result: resultMessage });
-            });
-
-            if (room.dbGameId) {
-                await prisma.game.update({
-                    where: { id: room.dbGameId },
-                    data: { status: 'finished', result: resultMessage, finishedAt: new Date() }
+            // If the elapsed time is greater than the player's remaining time, they flagged!
+            if (room.clock[turn] - timeElapsed <= 0) {
+                console.log(`Room ${roomId}: Player ${turn} flagged!`);
+                room.clock[turn] = 0;
+                
+                const winner = turn === 'w' ? 'Black' : 'White';
+                const resultMessage = `Timeout! ${winner} wins.`;
+                
+                room.players.forEach(client => {
+                    sendToClient(client, { type: 'state', fen: room.game.fen(), turn: turn, clock: room.clock });
+                    sendToClient(client, { type: 'game_over', result: resultMessage });
                 });
+
+                if (room.dbGameId) {
+                    await prisma.game.update({
+                        where: { id: room.dbGameId },
+                        data: { status: 'finished', result: resultMessage, finishedAt: new Date() }
+                    });
+                }
+                
+                rooms.delete(roomId);
             }
-            
-            rooms.delete(roomId);
         }
-    }
-}, 1000);
+    }, 1000);
 
     wss.on('close', () => {
         clearInterval(heartBeatInterval);
-        clearInterval(sweeperInterval); 
+        clearInterval(sweeperInterval);
     });
 }

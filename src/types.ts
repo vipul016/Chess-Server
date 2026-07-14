@@ -3,7 +3,10 @@ export type ClientMessage =
   | { type: 'find_match'}
   | { type: 'chat'; message: string }
   | { type : 'move'; from : string; to : string; promotion ?: string}
-  | { type: 'reconnect'; roomId: string; sessionId: string; token: string};
+  | { type: 'reconnect'; roomId: string; sessionId: string; token: string}
+  | { type: 'resign' }                                     
+  | { type: 'draw_offer' }                                
+  | { type: 'draw_response'; accept: boolean };
 
 export type ServerMessage =
   | { type: 'room_joined'; color: 'white' | 'black'; sessionId: string}
@@ -11,4 +14,5 @@ export type ServerMessage =
   | { type: 'state'; fen: string; turn: 'w' | 'b'; clock: { w: number; b: number }} 
   | { type: 'error'; message: string }
   | { type: 'game_over'; result: string}
-  | { type: 'chat'; message: string };
+  | { type: 'chat'; message: string }
+  | { type: 'draw_offered' };
