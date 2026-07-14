@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { PrismaClient } from '@prisma/client';
 import dotenv from 'dotenv';
+import { z } from 'zod';
 
 dotenv.config();
 
@@ -12,11 +13,21 @@ if(!JWT_SECRET){
     process.exit(1);
 }
 
-const prisma = new PrismaClient();    
+const prisma = new PrismaClient();   
+
+const authSchema = z.object({
+    username: z.string().min(3, "Username must be at least 3 characters").max(20, "Username must be under 20 characters"),
+    password: z.string().min(6, "Password must be at least 6 characters").max(100)
+});
+
 
 export const signup = async (req : Request, res: Response)=> {
     try{
-        const {username,password} = req.body;
+        const parsed = authSchema.safeParse(req.body);
+        if (!parsed.success) {
+            return res.status(400).json({ error: parsed.error.format() });
+        }
+        const { username, password } = parsed.data;
         if (!username || !password) return res.status(400).json({ error: "Missing fields" });
 
         const existing = await prisma.user.findUnique({ where: { username } });

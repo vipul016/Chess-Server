@@ -16,6 +16,7 @@ interface ChessWebSocket extends WebSocket {
     color?: 'w' | 'b';
     roomId?: string;     
     isBeingReplaced?: boolean;
+    lastActionTime?: number;
 }
 
 interface Room {
@@ -50,6 +51,13 @@ export function setupWebSockets(wss: WebSocketServer) {
         });
 
         ws.on("message", async (data) => {
+
+            const now = Date.now();
+            if (ws.lastActionTime && (now - ws.lastActionTime < 200)) {
+                // Ignore messages sent faster than 5 per second
+                return;
+            }
+            ws.lastActionTime = now;
             try {
                 const parsedMessage = JSON.parse(data.toString()) as ClientMessage;
                 

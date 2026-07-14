@@ -1,5 +1,6 @@
 import dotenv from 'dotenv';
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import http from 'http';
 import cors from 'cors';
 import { WebSocketServer } from 'ws';
@@ -13,6 +14,12 @@ dotenv.config();
 const app = express();
 const server = http.createServer(app);
 
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, 
+    max: 20, 
+    message: { error: 'Too many requests from this IP. Please try again later.' }
+});
+
 // 1. Middleware
 app.use(cors({
     origin: ['http://localhost:5173', 'http://127.0.0.1:5173'],
@@ -22,7 +29,7 @@ app.use(cors({
 app.use(express.json());
 
 // 2. HTTP Routes
-app.use('/auth', authRoutes);
+app.use('/auth',authLimiter,authRoutes);
 app.use('/games', gameRoutes);
 
 // 3. WebSocket Initialization
