@@ -1,7 +1,14 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import dotenv from 'dotenv';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-chess-key';
+dotenv.config();
+
+const JWT_SECRET = process.env.JWT_SECRET;
+if(!JWT_SECRET){
+    console.error("FATAL ERROR: JWT_SECRET environment variable is not set.");
+    process.exit(1);
+}
 
 export interface AuthRequest extends Request {
     userId?: string;
@@ -19,7 +26,7 @@ export const requireAuth = (req : AuthRequest, res: Response, next: NextFunction
     const token = authHeader.split(' ')[1];
 
     try{
-        const decoded = jwt.verify(token, JWT_SECRET) as { userId: string, username: string };
+        const decoded = jwt.verify(token, JWT_SECRET as string) as { userId: string, username: string };
         req.userId = decoded.userId;
         req.username = decoded.username;
         next(); 

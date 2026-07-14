@@ -1,3 +1,4 @@
+import dotenv from 'dotenv';
 import express from 'express';
 import http from 'http';
 import cors from 'cors';
@@ -7,11 +8,17 @@ import { setupWebSockets } from './ws/gameManager';
 import { handleWsUpgrade } from './middlewares/wsAuth'; 
 import gameRoutes from './routes/game.routes';
 
+dotenv.config();
+
 const app = express();
 const server = http.createServer(app);
 
 // 1. Middleware
-app.use(cors());
+app.use(cors({
+    origin: ['http://localhost:5173', 'http://127.0.0.1:5173'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    credentials: true 
+}));
 app.use(express.json());
 
 // 2. HTTP Routes

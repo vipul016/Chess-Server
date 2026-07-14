@@ -55,7 +55,9 @@ export const getGameById = async (req: AuthRequest, res: Response)=> {
         if (!game) {
             return res.status(404).json({ error: 'Game not found' });
         }
-
+        if (game.whitePlayerId !== req.userId && game.blackPlayerId !== req.userId) {
+            return res.status(403).json({ error: 'Forbidden: You did not participate in this game' });
+        }
         res.json(game);
     } catch (error) {
         console.error(error);
@@ -63,7 +65,7 @@ export const getGameById = async (req: AuthRequest, res: Response)=> {
     }
 };
 
-export const analyzeGamePosition = async (req: Request, res: Response) => {
+export const analyzeGamePosition = async (req: AuthRequest, res: Response) => {
     // 1. Spawn a dedicated engine instance just for this request
     const engine = new StockfishService();
     

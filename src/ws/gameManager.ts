@@ -189,13 +189,20 @@ export function setupWebSockets(wss: WebSocketServer) {
                             
                             if (room.game.isGameOver()) {
                                 let resultMessage = "Game Over";
+    
                                 if (room.game.isCheckmate()) {
                                     const winner = turn === 'b' ? 'White' : 'Black'; 
                                     resultMessage = `Checkmate! ${winner} wins.`;
-                                } else if (room.game.isDraw() || room.game.isStalemate() || room.game.isThreefoldRepetition()) {
-                                    resultMessage = "Draw!";
+                                } 
+                                // FIX: Remove redundant checks (isStalemate, isThreefoldRepetition)
+                                else if (room.game.isDraw()) {
+                                    // Optional polish: We can actually check which kind of draw it was for a better message
+                                    if (room.game.isStalemate()) resultMessage = "Draw by Stalemate!";
+                                    else if (room.game.isThreefoldRepetition()) resultMessage = "Draw by Repetition!";
+                                    else if (room.game.isInsufficientMaterial()) resultMessage = "Draw by Insufficient Material!";
+                                    else resultMessage = "Draw!";
                                 }
-                                
+                                                            
                                 room.players.forEach(client => {
                                     sendToClient(client, { type: 'game_over', result: resultMessage });
                                 });

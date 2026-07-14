@@ -2,9 +2,17 @@ import {Request,Response} from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { PrismaClient } from '@prisma/client';
+import dotenv from 'dotenv';
 
-const prisma = new PrismaClient();
-const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-chess-key';      
+dotenv.config();
+
+const JWT_SECRET = process.env.JWT_SECRET;
+if(!JWT_SECRET){
+    console.error("FATAL ERROR: JWT_SECRET environment variable is not set.");
+    process.exit(1);
+}
+
+const prisma = new PrismaClient();    
 
 export const signup = async (req : Request, res: Response)=> {
     try{

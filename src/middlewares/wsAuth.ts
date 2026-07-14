@@ -3,8 +3,16 @@ import jwt from 'jsonwebtoken';
 import { WebSocketServer } from 'ws';
 import { IncomingMessage } from 'http';
 import { Duplex } from 'stream';
+import dotenv from 'dotenv';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-chess-key';
+dotenv.config();
+
+const JWT_SECRET = process.env.JWT_SECRET;
+if(!JWT_SECRET){
+    console.error("FATAL ERROR: JWT_SECRET environment variable is not set.");
+    process.exit(1);
+}
+
 
 export const handleWsUpgrade = (wss: WebSocketServer) => {
     return (request: IncomingMessage, socket: Duplex, head: Buffer) => {
