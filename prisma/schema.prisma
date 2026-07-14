@@ -19,6 +19,11 @@ model User {
   passwordHash String   // NEW: For secure login
   createdAt    DateTime @default(now())
 
+  rating       Int      @default(1200)
+  wins         Int      @default(0)
+  losses       Int      @default(0)
+  draws        Int      @default(0)
+
   // Relations
   gamesAsWhite Game[] @relation("WhitePlayer")
   gamesAsBlack Game[] @relation("BlackPlayer")
@@ -32,6 +37,9 @@ model Game {
   result        String?   
   createdAt     DateTime  @default(now())
   finishedAt    DateTime?
+
+  whiteRatingChange Int?
+  blackRatingChange Int?
 
   // Relations
   whitePlayer User?  @relation("WhitePlayer", fields: [whitePlayerId], references: [id])

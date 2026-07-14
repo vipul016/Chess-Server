@@ -5,6 +5,7 @@ import { ChessWebSocket, rooms, matchQueue, sendToClient } from './state';
 import { handleFindMatch } from './handlers/matchmaking';
 import { handleMove, handleResign, handleDrawOffer, handleDrawResponse } from './handlers/gameplay';
 import { handleChat, handleReconnect } from './handlers/connection';
+import { finalizeGame } from './handlers/gameplay';
 
 const prisma = new PrismaClient();
 let heartBeatInterval: NodeJS.Timeout;
@@ -121,10 +122,8 @@ export function setupWebSockets(wss: WebSocketServer) {
                 });
 
                 if (room.dbGameId) {
-                    await prisma.game.update({
-                        where: { id: room.dbGameId },
-                        data: { status: 'finished', result: resultMessage, finishedAt: new Date() }
-                    });
+                    const outcome = turn === 'w' ? 'b' : 'w'; // The person whose turn it is flagged, so the OTHER color wins
+                    await finalizeGame(roomId, room.dbGameId, resultMessage, outcome);
                 }
                 
                 rooms.delete(roomId);
