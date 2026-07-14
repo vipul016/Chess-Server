@@ -2,6 +2,7 @@ import {Request,Response} from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { PrismaClient } from '@prisma/client';
+import { AuthRequest } from '../middlewares/httpAuth';
 import dotenv from 'dotenv';
 import { z } from 'zod';
 
@@ -62,6 +63,24 @@ export const login = async (req: Request, res: Response) => {
         const token = jwt.sign({ userId: user.id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
         res.json({ token, userId: user.id, username: user.username });
     } catch (error) {
+        res.status(500).json({ error: "Server error" });
+    }
+};
+
+export const getMe = async (req: AuthRequest, res: Response) => {
+    try {
+        const user = await prisma.user.findUnique({ where: { id: req.userId } });
+        if (!user) return res.status(404).json({ error: "User not found" });
+        res.json({
+            id: user.id,
+            username: user.username,
+            rating: user.rating,
+            wins: user.wins,
+            losses: user.losses,
+            draws: user.draws,
+            createdAt: user.createdAt
+        });
+    } catch (e) {
         res.status(500).json({ error: "Server error" });
     }
 };

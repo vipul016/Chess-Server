@@ -22,7 +22,7 @@ const prisma = new PrismaClient();
 
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, 
-    max: 20, 
+    max: 10000, 
     message: { error: 'Too many requests from this IP. Please try again later.' }
 });
 

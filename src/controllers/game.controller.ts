@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middlewares/httpAuth';
 import { StockfishService } from '../services/stockfish.service';
 import {z} from 'zod';
+import { rooms } from '../ws/state';
 
 const prisma = new PrismaClient();
 const analyzeSchema = z.object({
@@ -27,6 +28,10 @@ export const getMyGames = async (req: AuthRequest, res: Response)=> {
                 result: true,
                 createdAt: true,
                 finishedAt: true,
+                whiteRatingChange: true,
+                blackRatingChange: true,
+                whitePlayerId: true,
+                blackPlayerId: true,
                 whitePlayer: { select: { username: true } },
                 blackPlayer: { select: { username: true } }
             }
@@ -129,5 +134,51 @@ export const getFullGameAnalysis = async (req: AuthRequest, res: Response) => {
     } finally {
         // 2. GUARANTEE the process is killed
         engine.kill();
+    }
+};
+
+export const getActiveGames = async (req: AuthRequest, res: Response) => {
+    try {
+        const active = [];
+        for (const [roomId, room] of rooms.entries()) {
+            if (!room.game.isGameOver()) {
+                const white = room.players.find(p => p.color === 'w');
+                const black = room.players.find(p => p.color === 'b');
+                active.push({
+                    roomId,
+                    whitePlayer: white ? white.username : 'Unknown',
+                    whiteRating: white ? white.rating : 1200,
+                    blackPlayer: black ? black.username : 'Unknown',
+                    blackRating: black ? black.rating : 1200,
+                    fen: room.game.fen()
+                });
+            }
+        }
+        res.json(active);
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to fetch active games' });
+    }
+};
+export const getMyActiveGame = async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.userId!;
+        
+        for (const [roomId, room] of rooms.entries()) {
+            if (!room.game.isGameOver()) {
+                const myPlayer = room.players.find(p => p.userId === userId);
+                if (myPlayer) {
+                    const opponent = room.players.find(p => p !== myPlayer);
+                    return res.json({
+                        roomId,
+                        sessionId: myPlayer.sessionId,
+                        color: myPlayer.color === 'w' ? 'white' : 'black',
+                        opponentName: opponent ? opponent.username : 'Unknown'
+                    });
+                }
+            }
+        }
+        res.json(null);
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to fetch your active game' });
     }
 };

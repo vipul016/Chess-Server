@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { PrismaClient } from '@prisma/client';
 import { Chess } from 'chess.js';
 import { ChessWebSocket, rooms, matchQueue, pendingPrivateRooms, sendToClient } from '../state';
+import { StockfishService } from '../../services/stockfish.service';
 
 const prisma = new PrismaClient();
 
@@ -38,8 +39,13 @@ export async function setupGameRoom(player1: ChessWebSocket, player2: ChessWebSo
     });
     room.dbGameId = dbGame.id;
 
-    sendToClient(player1, { type: 'match_found', roomId, color: 'white' });
-    sendToClient(player2, { type: 'match_found', roomId, color: 'black' });
+    const playersInfo = {
+        white: { username: player1.username!, rating: player1.rating },
+        black: { username: player2.username!, rating: player2.rating }
+    };
+
+    sendToClient(player1, { type: 'match_found', roomId, color: 'white', sessionId: player1.sessionId!, players: playersInfo });
+    sendToClient(player2, { type: 'match_found', roomId, color: 'black', sessionId: player2.sessionId!, players: playersInfo });
 
     const startingState = {
         type: 'state' as const,
@@ -121,4 +127,55 @@ export async function handleJoinPrivateRoom(ws: ChessWebSocket, roomCode: string
     // Remove from pending map and start the game!
     pendingPrivateRooms.delete(roomCode);
     await setupGameRoom(host, ws);
+}
+
+export async function handlePlayBot(ws: ChessWebSocket, level: number) {
+    const roomId = crypto.randomUUID(); 
+
+    rooms.set(roomId, {
+        players: [ws], // Bot is not a websocket
+        game: new Chess(),
+        clock: { w: 600000, b: 600000 },
+        lastMoveTime: Date.now(),
+        dbGameId: '',
+        isBotGame: true,
+        botLevel: level,
+        botColor: 'b' // Human plays White
+    });
+
+    const room = rooms.get(roomId)!;
+    
+    // Initialize Stockfish for this room
+    room.botEngine = new StockfishService();
+    room.botEngine.setSkillLevel(level);
+
+    ws.roomId = roomId;
+    ws.color = 'w';
+    ws.sessionId = crypto.randomUUID();
+
+    const dbGame = await prisma.game.create({
+        data: { 
+            status: 'active',
+            whitePlayerId: ws.userId!
+            // blackPlayerId remains null for bot
+        }
+    });
+    room.dbGameId = dbGame.id;
+
+    const playersInfo = {
+        white: { username: ws.username!, rating: ws.rating },
+        black: { username: `Stockfish Lvl ${level}`, rating: level * 100 }
+    };
+
+    sendToClient(ws, { type: 'match_found', roomId, color: 'white', sessionId: ws.sessionId!, players: playersInfo });
+
+    const startingState = {
+        type: 'state' as const,
+        fen: room.game.fen(),
+        turn: room.game.turn(),
+        clock: { w: 600000, b: 600000 } // Clock can just be static for bot games for now, or we can use the same clock logic
+    };
+    sendToClient(ws, startingState);
+
+    console.log(`Bot Match created: Room ${roomId} for player ${ws.username}`);
 }

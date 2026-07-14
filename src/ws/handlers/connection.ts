@@ -9,6 +9,12 @@ export function handleChat(ws: ChessWebSocket, message: string) {
     if (opponent) {
         sendToClient(opponent, { type: 'chat', message });
     }
+    
+    if (room.spectators) {
+        room.spectators.forEach(s => {
+            sendToClient(s, { type: 'chat', message });
+        });
+    }
 }
 
 export function handleReconnect(ws: ChessWebSocket, roomId: string, sessionId: string) {
@@ -47,7 +53,13 @@ export function handleReconnect(ws: ChessWebSocket, roomId: string, sessionId: s
     }
 
     const colorString = ws.color === 'w' ? 'white' : 'black';
-    sendToClient(ws, { type: 'room_joined', color: colorString, sessionId: sessionId });
+    const whitePlayer = room.players.find(p => p.color === 'w');
+    const blackPlayer = room.players.find(p => p.color === 'b');
+    const playersInfo = {
+        white: { username: whitePlayer?.username || 'Unknown', rating: whitePlayer?.rating || 1200 },
+        black: { username: blackPlayer?.username || 'Unknown', rating: blackPlayer?.rating || 1200 }
+    };
+    sendToClient(ws, { type: 'room_joined', color: colorString, sessionId: sessionId, players: playersInfo });
     sendToClient(ws, { type: 'state', fen: room.game.fen(), turn: room.game.turn(), clock: room.clock });
 
     const opponent = room.players.find(p => p !== ws);

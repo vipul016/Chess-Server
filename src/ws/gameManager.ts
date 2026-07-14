@@ -5,7 +5,7 @@ import { ChessWebSocket, rooms, matchQueue, pendingPrivateRooms, sendToClient } 
 import { handleMove, handleResign, handleDrawOffer, handleDrawResponse } from './handlers/gameplay';
 import { handleChat, handleReconnect } from './handlers/connection';
 import { finalizeGame } from './handlers/gameplay';
-import { handleFindMatch, handleCreatePrivateRoom, handleJoinPrivateRoom, setupGameRoom } from './handlers/matchmaking';
+import { handleFindMatch, handleCreatePrivateRoom, handleJoinPrivateRoom, setupGameRoom, handlePlayBot } from './handlers/matchmaking';
 
 const prisma = new PrismaClient();
 let heartBeatInterval: NodeJS.Timeout;
@@ -45,6 +45,13 @@ export function setupWebSockets(wss: WebSocketServer) {
                     case 'find_match':
                         await handleFindMatch(ws);
                         break;
+                    case 'cancel_find_match':
+                        const idx = matchQueue.indexOf(ws);
+                        if (idx !== -1) {
+                            matchQueue.splice(idx, 1);
+                            ws.queuedAt = undefined;
+                        }
+                        break;
                     case 'create_private_room':
                         handleCreatePrivateRoom(ws);
                         break;
@@ -54,6 +61,13 @@ export function setupWebSockets(wss: WebSocketServer) {
                             break;
                         }
                         await handleJoinPrivateRoom(ws, parsedMessage.roomCode);
+                        break;
+                    case 'play_bot':
+                        if (!parsedMessage.level) {
+                            sendToClient(ws, { type: 'error', message: 'Bot level required.' });
+                            break;
+                        }
+                        await handlePlayBot(ws, parsedMessage.level);
                         break;
                     case 'move':
                         await handleMove(ws, parsedMessage);
@@ -66,6 +80,17 @@ export function setupWebSockets(wss: WebSocketServer) {
                         break;
                     case 'draw_response':
                         await handleDrawResponse(ws, parsedMessage.accept);
+                        break;
+                    case 'leave_room':
+                        if (ws.roomId) {
+                            const room = rooms.get(ws.roomId);
+                            if (room) {
+                                if (!room.game.isGameOver() && !room.dbGameId?.startsWith('done')) {
+                                    handleResign(ws);
+                                }
+                            }
+                            ws.roomId = undefined;
+                        }
                         break;
                     case 'chat':
                         handleChat(ws, parsedMessage.message);
@@ -221,6 +246,7 @@ export async function shutdownActiveGames() {
     console.log(`Aborting ${rooms.size} active games...`);
     
     for (const [roomId, room] of rooms.entries()) {
+        if (room.botEngine) room.botEngine.kill();
         room.players.forEach(client => {
             sendToClient(client, { type: 'error', message: 'Server is restarting. Game aborted.' });
             client.terminate();

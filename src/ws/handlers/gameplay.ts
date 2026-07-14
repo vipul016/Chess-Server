@@ -5,13 +5,30 @@ import { calculateElo } from '../../utils/elo';
 
 const prisma = new PrismaClient();
 
-export async function finalizeGame(
-    roomId: string, 
-    dbGameId: string, 
-    resultMessage: string, 
-    outcome: 'w' | 'b' | 'd'
-) {
+export async function finalizeGame(roomId: string, dbGameId: string, resultMessage: string, outcome: 'w' | 'b' | 'd') {
+    const room = rooms.get(roomId);
+    if (!room) return;
+
+    if (room.botEngine) {
+        room.botEngine.kill();
+    }
+
     try {
+        if (room.isBotGame) {
+            // For bot games, just mark as finished, no Elo changes
+            await prisma.game.update({
+                where: { id: dbGameId },
+                data: {
+                    status: 'finished',
+                    result: resultMessage,
+                    finishedAt: new Date(),
+                    whiteRatingChange: 0,
+                    blackRatingChange: 0
+                }
+            });
+            return;
+        }
+
         // 1. Fetch the current game and players to get their ratings
         const game = await prisma.game.findUnique({
             where: { id: dbGameId },
@@ -70,7 +87,7 @@ export async function handleMove(ws: ChessWebSocket, parsedMessage: any) {
     const currTurn = room.game.turn();
     if (!currTurn) return;
     
-    if (currTurn !== ws.color) {
+    if (currTurn !== ws.color && !room.isBotGame) {
         sendToClient(ws, { type: 'error', message: 'Not your turn' });
         return;
     }
@@ -100,11 +117,12 @@ export async function handleMove(ws: ChessWebSocket, parsedMessage: any) {
     }
     
     try {
-        const moveResult = room.game.move({ 
-            from: parsedMessage.from, 
+        const movePayload = {
+            from: parsedMessage.from,
             to: parsedMessage.to,
-            promotion: parsedMessage.promotion || 'q'
-        });
+            ...(parsedMessage.promotion && { promotion: parsedMessage.promotion })
+        };
+        const moveResult = room.game.move(movePayload);
 
         if (!moveResult) {
             sendToClient(ws, { type: 'error', message: 'Illegal move' });
@@ -157,9 +175,32 @@ export async function handleMove(ws: ChessWebSocket, parsedMessage: any) {
                 await finalizeGame(ws.roomId, room.dbGameId, resultMessage, outcome);
             }
             rooms.delete(ws.roomId);
+        } else if (room.isBotGame && turn === room.botColor && room.botEngine) {
+            // Trigger bot move asynchronously
+            setTimeout(async () => {
+                try {
+                    const analysis = await room.botEngine!.analyzePosition(room.game.fen(), 10);
+                    // bestMove is a string like 'e2e4' or 'e7e8q'
+                    const bm = analysis.bestMove;
+                    const from = bm.slice(0, 2);
+                    const to = bm.slice(2, 4);
+                    const promotion = bm.length > 4 ? bm[4] : undefined;
+                    
+                    // Mock a WebSocket message to reuse handleMove logic for the bot
+                    // Pass a dummy websocket (or the human's ws with a flag) 
+                    // Actually, handleMove checks ws.color to ensure it's their turn.
+                    // If we pass the human's ws, `ws.color` is 'w', but the turn is 'b'.
+                    // It will fail the check `currTurn !== ws.color`.
+                    // We need a dummy ws object for the bot.
+                    const dummyBotWs = { color: room.botColor, roomId: ws.roomId } as any;
+                    await handleMove(dummyBotWs, { type: 'move', from, to, promotion });
+                } catch (e) {
+                    console.error("Bot failed to move:", e);
+                }
+            }, 500); // Small delay for realism
         }
-    } catch (error) {
-        sendToClient(ws, { type: 'error', message: 'Move execution failed' });
+    } catch (e) {
+        sendToClient(ws, { type: 'error', message: 'Invalid move' });
     }
 }
 

@@ -1,6 +1,7 @@
 import { WebSocket } from 'ws';
 import { Chess } from 'chess.js';
 import { ServerMessage } from '../types';
+import { StockfishService } from '../services/stockfish.service';
 
 export interface ChessWebSocket extends WebSocket {
     isAlive: boolean;
@@ -25,6 +26,10 @@ export interface Room {
     drawOfferedBy?: 'w' | 'b' | null;
     disconnectTimeouts?: { w?: NodeJS.Timeout; b?: NodeJS.Timeout };
     spectators?: ChessWebSocket[];
+    isBotGame?: boolean;
+    botLevel?: number;
+    botColor?: 'w' | 'b';
+    botEngine?: StockfishService;
 }
 
 // Global in-memory state

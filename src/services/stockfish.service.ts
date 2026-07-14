@@ -28,6 +28,13 @@ export class StockfishService {
         }
     }
 
+    public setSkillLevel(level: number) {
+        if (!this.engine) return;
+        // Map 1-20 to Stockfish Skill Level 0-20
+        const skill = Math.max(0, Math.min(20, level));
+        this.engine.stdin.write(`setoption name Skill Level value ${skill}\n`);
+    }
+
     /**
      * Sends a single board state to Stockfish and gets an evaluation + best move
      */
@@ -45,7 +52,8 @@ export class StockfishService {
                 // Stockfish outputs "bestmove" when it finishes the requested depth
                 if (output.includes('bestmove')) {
                     cleanup();
-                    const result = this.parseOutput(output);
+                    const isBlack = fen.includes(' b ');
+                    const result = this.parseOutput(output, isBlack);
                     resolve(result);
                 }
             };
@@ -116,7 +124,7 @@ export class StockfishService {
 
     // --- HELPER METHODS ---
 
-    private parseOutput(output: string): { bestMove: string; evaluation: string } {
+    private parseOutput(output: string, isBlackToMove: boolean): { bestMove: string; evaluation: string } {
         const lines = output.split('\n');
         let bestMove = '';
         let evaluation = '0.00';
@@ -130,14 +138,17 @@ export class StockfishService {
                 const parts = lines[i].split(' ');
                 const cpIndex = parts.indexOf('cp');
                 if (cpIndex !== -1) {
-                    const score = parseInt(parts[cpIndex + 1], 10) / 100;
+                    let score = parseInt(parts[cpIndex + 1], 10) / 100;
+                    if (isBlackToMove) score = -score;
                     evaluation = score > 0 ? `+${score.toFixed(2)}` : score.toFixed(2);
                 }
             } else if (lines[i].includes('score mate')) {
                 const parts = lines[i].split(' ');
                 const mateIndex = parts.indexOf('mate');
                 if (mateIndex !== -1) {
-                    evaluation = `M${parts[mateIndex + 1]}`; // e.g. M3
+                    let mateIn = parseInt(parts[mateIndex + 1], 10);
+                    if (isBlackToMove) mateIn = -mateIn;
+                    evaluation = `M${mateIn}`; // e.g. M3 or M-3
                 }
             }
         }
