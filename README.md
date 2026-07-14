@@ -150,3 +150,19 @@ Covers authentication flows, Elo calculation, and full WebSocket game lifecycles
 
 ## Related
 Pairs with [Chess-Client](https://github.com/vipul016/Chess-Client) — the React frontend for this backend.
+
+## Deployment
+
+The backend is fully containerized and includes the Stockfish binary alongside the Node.js application.
+
+### 1. Database Setup (Supabase / Neon)
+The application requires a PostgreSQL database. If you use Supabase, **you must use the Transaction Connection Pooler URL** (port `6543`) because many hosting providers do not support Supabase's direct IPv6 connections.
+- Ensure your connection URL appends `?pgbouncer=true&connection_limit=1`.
+
+### 2. Backend Hosting (Render / Railway)
+1. Import your `chess-server` repository to Render.com as a **Web Service**.
+2. Render will automatically detect the provided `Dockerfile` and use the Docker runtime.
+3. Configure the following Environment Variables in the Render dashboard:
+   - `DATABASE_URL`: Your Supabase Connection Pooler URL.
+   - `JWT_SECRET`: A secure random string for authentication tokens.
+4. (Optional) The `Dockerfile` handles building the app and downloading Stockfish. The `package.json` start script will automatically push the database schema (`npx prisma db push`) upon startup, bypassing any local network database port blocks.
