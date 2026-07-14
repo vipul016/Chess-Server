@@ -9,6 +9,8 @@ const prisma = new PrismaClient();
 interface ChessWebSocket extends WebSocket {
     isAlive: boolean;
     sessionId?: string;
+    userId?: string;
+    username?: string;
     color?: 'w' | 'b';
     isBeingReplaced?: boolean;
 }
@@ -26,9 +28,12 @@ function sendToClient(ws: WebSocket, message: ServerMessage) {
 }
 
 export function setupWebSockets(wss: WebSocketServer) {
-    wss.on("connection", (socket: WebSocket) => {
+    wss.on("connection", (socket: WebSocket,req: any    ) => {
         const ws = socket as ChessWebSocket;
-        console.log("A New Player Connected!");
+
+        ws.userId = req.userId;
+        ws.username = req.username;
+        console.log(`Player ${ws.username} Connected!`);
 
         ws.isAlive = true;
         ws.on('pong', () => { ws.isAlive = true; });
