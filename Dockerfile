@@ -3,6 +3,7 @@ FROM node:20-bookworm-slim
 
 # Install Stockfish and OpenSSL (required for Prisma)
 RUN apt-get update && apt-get install -y stockfish openssl && rm -rf /var/lib/apt/lists/*
+RUN ln -s /usr/games/stockfish /usr/bin/stockfish
 
 # Create app directory
 WORKDIR /usr/src/app
