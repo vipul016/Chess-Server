@@ -8,11 +8,17 @@ import authRoutes from './routes/auth.routes';
 import { setupWebSockets } from './ws/gameManager';
 import { handleWsUpgrade } from './middlewares/wsAuth'; 
 import gameRoutes from './routes/game.routes';
+import { shutdownActiveGames } from './ws/gameManager';
+import { PrismaClient } from '@prisma/client';
+
 
 dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
+const PORT = process.env.PORT;
+const prisma = new PrismaClient();
+
 
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, 
@@ -40,6 +46,29 @@ setupWebSockets(wss);
 server.on('upgrade', handleWsUpgrade(wss));
 
 // 5. Start Server
-server.listen(8080, () => {
+server.listen(PORT, () => {
     console.log("♟️ Hybrid REST & WebSocket Server running on http://localhost:8080");
 });
+
+const gracefulShutdown = async (signal: string) => {
+    console.log(`\n${signal} received. Starting graceful shutdown...`);
+    
+    // 1. Stop accepting new HTTP connections
+    server.close(() => {
+        console.log('HTTP server closed.');
+    });
+
+    // 2. Abort active games, notify clients, and stop loops
+    await shutdownActiveGames();
+
+    // 3. Disconnect from PostgreSQL cleanly
+    await prisma.$disconnect();
+    console.log('Database connection closed.');
+
+    // 4. Exit the process successfully
+    console.log('Shutdown complete.');
+    process.exit(0);
+};
+
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));

@@ -6,6 +6,8 @@ import crypto from 'crypto';
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
+let heartBeatInterval: NodeJS.Timeout;
+let sweeperInterval: NodeJS.Timeout;
 
 // Extending the base WebSocket to hold our custom game state and auth data
 interface ChessWebSocket extends WebSocket {
@@ -385,7 +387,7 @@ export function setupWebSockets(wss: WebSocketServer) {
     });
 
     // Heartbeat Interval
-    const heartBeatInterval = setInterval(() => {
+    heartBeatInterval = setInterval(() => {
         wss.clients.forEach((client) => {
             const ws = client as ChessWebSocket;
             if (ws.isAlive === false) {
@@ -399,7 +401,7 @@ export function setupWebSockets(wss: WebSocketServer) {
     }, 30000);
 
     // Timeout Sweeper (Runs every 1 second)
-    const sweeperInterval = setInterval(async () => {
+    sweeperInterval = setInterval(async () => {
         const now = Date.now();
 
         for (const [roomId, room] of rooms.entries()) {
@@ -435,4 +437,30 @@ export function setupWebSockets(wss: WebSocketServer) {
         clearInterval(heartBeatInterval);
         clearInterval(sweeperInterval);
     });
+}
+
+export async function shutdownActiveGames() {
+    console.log("Stopping game loops...");
+    clearInterval(heartBeatInterval);
+    clearInterval(sweeperInterval);
+
+    console.log(`Aborting ${rooms.size} active games...`);
+    
+    // Safely notify players and update the database
+    for (const [roomId, room] of rooms.entries()) {
+        room.players.forEach(client => {
+            // Tell the frontend exactly why the socket is closing
+            sendToClient(client, { type: 'error', message: 'Server is restarting. Game aborted.' });
+            client.terminate();
+        });
+
+        if (room.dbGameId) {
+            await prisma.game.update({
+                where: { id: room.dbGameId },
+                // You may need to add 'aborted' to your GameStatus enum in schema.prisma!
+                data: { status: 'aborted', finishedAt: new Date() }
+            });
+        }
+    }
+    rooms.clear();
 }
