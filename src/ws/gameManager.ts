@@ -22,6 +22,8 @@ interface Room {
     players: ChessWebSocket[];
     game: Chess;
     dbGameId?: string;
+    clock: { w: number; b: number };
+    lastMoveTime: number;
 }
 
 const rooms = new Map<string, Room>();
@@ -66,7 +68,9 @@ export function setupWebSockets(wss: WebSocketServer) {
 
                             rooms.set(roomId, {
                                 players: [waitingPlayer, ws],
-                                game: new Chess()
+                                game: new Chess(),
+                                clock: {w : 600000,b : 600000},
+                                lastMoveTime: Date.now(),
                             });
 
                             const room = rooms.get(roomId)!;
@@ -99,7 +103,8 @@ export function setupWebSockets(wss: WebSocketServer) {
                             const startingState = {
                                 type: 'state' as const,
                                 fen: room.game.fen(),
-                                turn: room.game.turn()
+                                turn: room.game.turn(),
+                                clock : room.clock
                             };
                             sendToClient(waitingPlayer, startingState);
                             sendToClient(ws, startingState);
@@ -130,7 +135,31 @@ export function setupWebSockets(wss: WebSocketServer) {
                             sendToClient(ws, { type: 'error', message: 'Not your turn' });
                             break;
                         }
-                        
+
+                        const now = Date.now();
+                        const timeElapsed = now - room.lastMoveTime;
+                        room.clock[currTurn] -= timeElapsed;
+                        room.lastMoveTime = now;
+
+                        if (room.clock[currTurn] <= 0) {
+                            room.clock[currTurn] = 0; // Prevent negative time
+                            const winner = currTurn === 'w' ? 'Black' : 'White';
+                            const resultMessage = `Timeout! ${winner} wins.`;
+                            
+                            room.players.forEach(client => {
+                                sendToClient(client, { type: 'game_over', result: resultMessage });
+                            });
+
+                            if (room.dbGameId) {
+                                await prisma.game.update({
+                                    where: { id: room.dbGameId },
+                                    data: { status: 'finished', result: resultMessage, finishedAt: new Date() }
+                                });
+                            }
+                            rooms.delete(ws.roomId);
+                            break; // STOP processing the move!
+                        }
+                                                
                         try {
                             // chess.js handles all complex chess logic (en passant, castling, etc.)
                             const moveResult = room.game.move({ 
@@ -149,7 +178,7 @@ export function setupWebSockets(wss: WebSocketServer) {
 
                             // Broadcast the new board state to both players
                             room.players.forEach(client => {
-                                sendToClient(client, { type: 'state', fen: newFen, turn: turn });
+                                sendToClient(client, { type: 'state', fen: newFen, turn: turn,clock : room.clock });
                             });
 
                             // Save the move to PostgreSQL
@@ -305,5 +334,40 @@ export function setupWebSockets(wss: WebSocketServer) {
         });
     }, 30000);
 
-    wss.on('close', () => clearInterval(heartBeatInterval));
+const sweeperInterval = setInterval(async () => {
+    const now = Date.now();
+
+    for (const [roomId, room] of rooms.entries()) {
+        const turn = room.game.turn();
+        
+        const timeElapsed = now - room.lastMoveTime;
+        
+        if (room.clock[turn] - timeElapsed <= 0) {
+            console.log(`Room ${roomId}: Player ${turn} flagged!`);
+            room.clock[turn] = 0;
+            
+            const winner = turn === 'w' ? 'Black' : 'White';
+            const resultMessage = `Timeout! ${winner} wins.`;
+            
+            room.players.forEach(client => {
+                sendToClient(client, { type: 'state', fen: room.game.fen(), turn: turn, clock: room.clock });
+                sendToClient(client, { type: 'game_over', result: resultMessage });
+            });
+
+            if (room.dbGameId) {
+                await prisma.game.update({
+                    where: { id: room.dbGameId },
+                    data: { status: 'finished', result: resultMessage, finishedAt: new Date() }
+                });
+            }
+            
+            rooms.delete(roomId);
+        }
+    }
+}, 1000);
+
+    wss.on('close', () => {
+        clearInterval(heartBeatInterval);
+        clearInterval(sweeperInterval); 
+    });
 }

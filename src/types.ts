@@ -8,7 +8,7 @@ export type ClientMessage =
 export type ServerMessage =
   | { type: 'room_joined'; color: 'white' | 'black'; sessionId: string}
   | { type: 'match_found'; roomId: string; color: 'white' | 'black' }
-  | { type: 'state'; fen: string; turn: 'w' | 'b' } 
+  | { type: 'state'; fen: string; turn: 'w' | 'b'; clock: { w: number; b: number }} 
   | { type: 'error'; message: string }
   | { type: 'game_over'; result: string}
   | { type: 'chat'; message: string };
