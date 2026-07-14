@@ -113,6 +113,7 @@ export async function handleMove(ws: ChessWebSocket, parsedMessage: any) {
 
         const newFen = room.game.fen();
         const turn = room.game.turn();
+        room.drawOfferedBy = null;
 
         room.players.forEach(client => {
             sendToClient(client, { type: 'state', fen: newFen, turn: turn, clock: room.clock });
@@ -190,6 +191,7 @@ export function handleDrawOffer(ws: ChessWebSocket) {
 
     const opponent = room.players.find(p => p !== ws);
     if (opponent) {
+        room.drawOfferedBy = ws.color;
         sendToClient(opponent, { type: 'draw_offered' });
         sendToClient(opponent, { type: 'chat', message: 'Your opponent offered a draw.' });
     }
@@ -202,7 +204,7 @@ export async function handleDrawResponse(ws: ChessWebSocket, accept: boolean) {
 
     const opponent = room.players.find(p => p !== ws);
 
-    if (accept) {
+    if (accept && room.drawOfferedBy && room.drawOfferedBy !== ws.color) {
         const resultMessage = "Draw by agreement.";
         
         room.players.forEach(client => {
@@ -215,6 +217,7 @@ export async function handleDrawResponse(ws: ChessWebSocket, accept: boolean) {
         }
         rooms.delete(ws.roomId);
     } else {
+        room.drawOfferedBy = null;
         if (opponent) {
             sendToClient(opponent, { type: 'chat', message: 'Draw offer declined.' });
         }

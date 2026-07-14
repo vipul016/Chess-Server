@@ -22,10 +22,12 @@ async function setupGameRoom(player1: ChessWebSocket, player2: ChessWebSocket) {
     player1.roomId = roomId;
     player1.color = 'w';
     player1.sessionId = crypto.randomUUID();
+    player1.lastOpponent = player2;
     
     player2.roomId = roomId;
     player2.color = 'b';
     player2.sessionId = crypto.randomUUID();
+    player2.lastOpponent = player1;
 
     const dbGame = await prisma.game.create({
         data: { 
@@ -62,8 +64,9 @@ export async function handleFindMatch(ws: ChessWebSocket) {
     // Prevent double-queueing
     if (matchQueue.includes(ws)) return;
 
-    // 2. Look for an opponent within 200 Elo points
-    const ELO_THRESHOLD = 200;
+    // 2. Look for an opponent within a widening Elo range
+    const timeWaiting = Date.now() - (ws.queuedAt || Date.now());
+    const ELO_THRESHOLD = 200 + Math.floor(timeWaiting / 5000) * 50; // Widen 50 points every 5 seconds
     let matchIndex = -1;
 
     for (let i = 0; i < matchQueue.length; i++) {
@@ -80,6 +83,7 @@ export async function handleFindMatch(ws: ChessWebSocket) {
         await setupGameRoom(opponent, ws);
     } else {
         // 4. If no match, add to queue
+        ws.queuedAt = ws.queuedAt || Date.now();
         matchQueue.push(ws);
         console.log(`Player ${ws.username} (Elo: ${ws.rating}) joined matchmaking queue...`);
     }

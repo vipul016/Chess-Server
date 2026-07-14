@@ -1,11 +1,11 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { ClientMessage } from '../types';
 import { PrismaClient } from '@prisma/client';
-import { ChessWebSocket, rooms, matchQueue, sendToClient } from './state';
+import { ChessWebSocket, rooms, matchQueue, pendingPrivateRooms, sendToClient } from './state';
 import { handleMove, handleResign, handleDrawOffer, handleDrawResponse } from './handlers/gameplay';
 import { handleChat, handleReconnect } from './handlers/connection';
 import { finalizeGame } from './handlers/gameplay';
-import { handleFindMatch, handleCreatePrivateRoom, handleJoinPrivateRoom } from './handlers/matchmaking';
+import { handleFindMatch, handleCreatePrivateRoom, handleJoinPrivateRoom, setupGameRoom } from './handlers/matchmaking';
 
 const prisma = new PrismaClient();
 let heartBeatInterval: NodeJS.Timeout;
@@ -73,6 +73,28 @@ export function setupWebSockets(wss: WebSocketServer) {
                     case 'reconnect':
                         handleReconnect(ws, parsedMessage.roomId, parsedMessage.sessionId);
                         break;
+                    case 'join':
+                        const joinRoom = rooms.get(parsedMessage.roomId);
+                        if (joinRoom) {
+                            if (!joinRoom.spectators) joinRoom.spectators = [];
+                            joinRoom.spectators.push(ws);
+                            ws.roomId = parsedMessage.roomId;
+                            sendToClient(ws, { type: 'state', fen: joinRoom.game.fen(), turn: joinRoom.game.turn(), clock: joinRoom.clock });
+                        } else {
+                            sendToClient(ws, { type: 'error', message: 'Room not found' });
+                        }
+                        break;
+                    case 'rematch_offer':
+                        if (ws.lastOpponent && ws.lastOpponent.readyState === ws.OPEN) {
+                            sendToClient(ws.lastOpponent, { type: 'rematch_offered' });
+                            sendToClient(ws.lastOpponent, { type: 'chat', message: 'Your opponent wants a rematch.' });
+                        }
+                        break;
+                    case 'rematch_accept':
+                        if (ws.lastOpponent && ws.lastOpponent.readyState === ws.OPEN) {
+                            await setupGameRoom(ws.lastOpponent, ws); // reverse colors naturally by passing opponent first
+                        }
+                        break;
                 }
             } catch (error) {
                 console.error("Received invalid JSON format");
@@ -95,24 +117,33 @@ export function setupWebSockets(wss: WebSocketServer) {
                 }
             }
             
-            if (matchQueue.waitingPlayer === ws) {
-                matchQueue.waitingPlayer = null;
-                console.log(`Waiting player ${ws.username} disconnected. Queue cleared.`);
-            }
-
-            console.log(`Player ${ws.username} Disconnected`);
             
             if (ws.roomId) {
                 const room = rooms.get(ws.roomId);
                 if (room) {
-                    room.players = room.players.filter(client => client !== ws);
+                    const opponent = room.players.find(p => p !== ws);
+                    if (opponent) {
+                        sendToClient(opponent, { type: 'error', message: 'Your opponent disconnected. They have 60 seconds to reconnect.' });
+                    }
                     
-                    room.players.forEach(client => {
-                        sendToClient(client, { type: 'error', message: 'Your opponent disconnected.' });
-                    });
-                    
-                    if (room.players.length === 0) {
-                        rooms.delete(ws.roomId);
+                    if (!room.disconnectTimeouts) room.disconnectTimeouts = {};
+                    const color = ws.color;
+                    if (color) {
+                        room.disconnectTimeouts[color] = setTimeout(async () => {
+                            if (rooms.has(ws.roomId!)) {
+                                const currentPlayer = room.players.find(p => p.color === color);
+                                // If the current player in the room is STILL this exact disconnected socket,
+                                // it means they haven't reconnected (because reconnect replaces the socket)
+                                if (currentPlayer === ws) {
+                                    const resultMsg = `${color === 'w' ? 'White' : 'Black'} abandoned the game.`;
+                                    if (opponent) sendToClient(opponent, { type: 'game_over', result: resultMsg });
+                                    if (room.dbGameId) {
+                                        await finalizeGame(ws.roomId!, room.dbGameId, resultMsg, color === 'w' ? 'b' : 'w');
+                                    }
+                                    rooms.delete(ws.roomId!);
+                                }
+                            }
+                        }, 60000);
                     }
                 }
             }
@@ -157,6 +188,16 @@ export function setupWebSockets(wss: WebSocketServer) {
                 }
                 
                 rooms.delete(roomId);
+            } else {
+                // Periodic tick sync
+                room.players.forEach(client => {
+                    sendToClient(client, { type: 'state', fen: room.game.fen(), turn: turn, clock: { ...room.clock, [turn]: room.clock[turn] - timeElapsed } });
+                });
+                if (room.spectators) {
+                    room.spectators.forEach(client => {
+                        sendToClient(client, { type: 'state', fen: room.game.fen(), turn: turn, clock: { ...room.clock, [turn]: room.clock[turn] - timeElapsed } });
+                    });
+                }
             }
         }
     }, 1000);

@@ -12,6 +12,8 @@ export interface ChessWebSocket extends WebSocket {
     isBeingReplaced?: boolean;
     lastActionTime?: number;
     rating: number;
+    queuedAt?: number;
+    lastOpponent?: ChessWebSocket;
 }
 
 export interface Room {
@@ -20,6 +22,9 @@ export interface Room {
     dbGameId?: string;
     clock: { w: number; b: number };
     lastMoveTime: number;
+    drawOfferedBy?: 'w' | 'b' | null;
+    disconnectTimeouts?: { w?: NodeJS.Timeout; b?: NodeJS.Timeout };
+    spectators?: ChessWebSocket[];
 }
 
 // Global in-memory state

@@ -117,7 +117,7 @@ export const getFullGameAnalysis = async (req: AuthRequest, res: Response) => {
         }
 
         const startingFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-        const fens = [startingFen, ...game.moves.map(m => m.fenAfter)];
+        const fens = [startingFen, ...game.moves.map((m: any) => m.fenAfter)];
 
         // We can safely iterate using this engine because no other user can access it
         const report = await engine.analyzeFullGame(fens);

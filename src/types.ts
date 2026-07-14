@@ -8,7 +8,9 @@ export type ClientMessage =
   | { type: 'draw_offer' }                                
   | { type: 'draw_response'; accept: boolean }
   | { type: 'create_private_room' }
-  | { type: 'join_private_room'; roomCode: string };
+  | { type: 'join_private_room'; roomCode: string }
+  | { type: 'rematch_offer' }
+  | { type: 'rematch_accept' };
 
 export type ServerMessage =
   | { type: 'room_joined'; color: 'white' | 'black'; sessionId: string}
@@ -18,4 +20,5 @@ export type ServerMessage =
   | { type: 'game_over'; result: string}
   | { type: 'chat'; message: string }
   | { type: 'draw_offered' }
-  | { type: 'room_created'; roomCode: string };
+  | { type: 'room_created'; roomCode: string }
+  | { type: 'rematch_offered' };
