@@ -8,7 +8,7 @@ A production-style, server-authoritative multiplayer chess platform built with N
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-316192?style=for-the-badge&logo=postgresql&logoColor=white)
 ![WebSockets](https://img.shields.io/badge/WebSockets-black?style=for-the-badge&logo=socket.io&logoColor=white)
 
-🌐 **[Live Demo](https://chess-client-6f79gpep5-vipul016s-projects.vercel.app)**  
+🌐 **[Live Demo](https://chess-client-phi.vercel.app)**  
 📖 **[Documentation](#architecture)**  
 💻 **[Frontend Repository](https://github.com/vipul016/Chess-Client)**
 
