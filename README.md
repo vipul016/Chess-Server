@@ -22,8 +22,8 @@ A production-style, server-authoritative multiplayer chess platform built with N
 - Server-owned chess clocks with automatic timeout (flag-fall) detection via a background sweeper
 - Resignation and draw offer/response flow
 
-**Matchmaking & Sessions**
-- Elo-based rating system (updates immediately upon game resolution)
+**Matchmaking & User Profiles**
+- Public user profiles showcasing Elo ratings, Win/Loss/Draw records, bios, and recent match histories
 - Global matchmaking queue and private room generation via shareable 6-character codes
 - Robust disconnection handling — players can refresh or disconnect and seamlessly re-join their active game seamlessly using their JWT session token
 - Live spectator mode for any ongoing game
@@ -51,6 +51,8 @@ A production-style, server-authoritative multiplayer chess platform built with N
 |----------|--------|-------------|
 | `/auth/signup` | `POST` | Create a new user account and receive a JWT. |
 | `/auth/login` | `POST` | Authenticate and receive a JWT. |
+| `/users/:username` | `GET` | Fetch public profile stats, bio, and recent games. |
+| `/users/me` | `PUT` | Update the authenticated user's username, password, or bio. |
 | `/games` | `GET` | Fetch user's match history. |
 | `/games/:id` | `GET` | Fetch specific game details and analysis. |
 | `/games/analyze` | `POST` | Enqueue an asynchronous Stockfish analysis for a finished game. |
