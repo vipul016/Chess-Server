@@ -5,6 +5,7 @@ import http from 'http';
 import cors from 'cors';
 import { WebSocketServer } from 'ws';
 import authRoutes from './routes/auth.routes';
+import userRoutes from './routes/user.routes';
 import { setupWebSockets } from './ws/gameManager';
 import { handleWsUpgrade } from './middlewares/wsAuth'; 
 import gameRoutes from './routes/game.routes';
@@ -41,6 +42,7 @@ app.use(express.json());
 // 2. HTTP Routes
 app.use('/auth',authLimiter,authRoutes);
 app.use('/games', gameRoutes);
+app.use('/users', userRoutes);
 
 // 3. WebSocket Initialization
 const wss = new WebSocketServer({ noServer: true });

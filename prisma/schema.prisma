@@ -17,6 +17,7 @@ model User {
   id           String   @id @default(uuid())
   username     String   @unique
   passwordHash String   // NEW: For secure login
+  bio          String?  // Optional bio
   createdAt    DateTime @default(now())
 
   rating       Int      @default(1200)
